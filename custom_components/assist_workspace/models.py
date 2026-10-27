@@ -54,6 +54,7 @@ class WorkspaceConversation:
     updated_at: str = field(default_factory=utcnow)
     messages: list[Message] = field(default_factory=list)
     schema_version: int = CURRENT_CONVERSATION_SCHEMA_VERSION
+    pinned: bool = False
 
     @property
     def ha_conversation_id(self) -> str:
@@ -95,6 +96,7 @@ def serialize_summary(conversation: WorkspaceConversation) -> dict[str, Any]:
         "created_at": conversation.created_at,
         "updated_at": conversation.updated_at,
         "message_count": len(conversation.messages),
+        "pinned": conversation.pinned,
     }
 
 
@@ -229,9 +231,10 @@ def deserialize_record(raw: dict[str, Any]) -> WorkspaceConversation | None:
             updated_at=str(migrated.get("updated_at", utcnow())),
             messages=messages,
             schema_version=int(migrated["schema_version"]),
+            pinned=bool(migrated.get("pinned", False)),
         )
         return conversation
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 

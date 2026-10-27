@@ -1,1 +1,34 @@
-{"title":"Assist Workspace","config":{"abort":{"single_instance_allowed":"Only one Assist Workspace instance is supported."}},"entity":{"button":{"new_chat":{"name":"New chat"}}}}
+{
+  "title": "Assist Workspace",
+  "config": {
+    "abort": {
+      "single_instance_allowed": "Only one Assist Workspace instance is supported."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Assist Workspace options",
+        "data": {
+          "max_conversations": "Chats kept per user (0 = unlimited)",
+          "max_age_days": "Delete chats older than this many days (0 = never)",
+          "admin_can_view": "Let admins review other users' chats",
+          "purge_removed_users": "Delete the history of users who have been removed"
+        },
+        "data_description": {
+          "max_conversations": "Oldest unpinned chats are deleted first. Pinned chats are always kept.",
+          "max_age_days": "Pinned chats are never deleted.",
+          "admin_can_view": "Shows the Chat Review page in the sidebar for admins. Every look at another user's chat is logged, and users see a notice.",
+          "purge_removed_users": "Runs when a user account no longer exists."
+        }
+      }
+    }
+  },
+  "entity": {
+    "button": {
+      "new_chat": {
+        "name": "New chat"
+      }
+    }
+  }
+}

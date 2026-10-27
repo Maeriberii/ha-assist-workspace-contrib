@@ -601,6 +601,13 @@ var Pe = class extends V {
       </section>
       <section>
         <h3>Workspace</h3>
+        <label class="title-field"
+          >Title
+          <input
+            type="text"
+            .value=${this.config?.title ?? "Assist Workspace"}
+            @input=${(r) => e("title", r.target.value)}
+        /></label>
         <ha-formfield label="Keep drafts locally"
           ><ha-switch
             ?checked=${this.config?.keep_drafts ?? !0}
@@ -657,6 +664,23 @@ var Pe = class extends V {
         margin: 6px 0;
         color: var(--secondary-text-color);
         font-size: 0.9rem;
+      }
+      .title-field {
+        display: grid;
+        gap: 4px;
+        margin: 8px 0;
+        color: var(--secondary-text-color);
+        font-size: 0.9rem;
+      }
+      .title-field input {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--divider-color);
+        border-radius: 6px;
+        color: var(--primary-text-color);
+        background: var(--card-background-color);
+        font: inherit;
       }
     `];
 };
@@ -888,7 +912,7 @@ var Ie = {
 	};
 	label(e) {
 		let t = e.updated_at ? new Date(e.updated_at) : /* @__PURE__ */ new Date(), n = /* @__PURE__ */ new Date(), r = new Date(n);
-		return r.setDate(n.getDate() - 1), t.toDateString() === n.toDateString() ? "Today" : t.toDateString() === r.toDateString() ? "Yesterday" : "Older";
+		return r.setDate(n.getDate() - 1), e.pinned ? "Pinned" : t.toDateString() === n.toDateString() ? "Today" : t.toDateString() === r.toDateString() ? "Yesterday" : "Older";
 	}
 	highlighted(e, t) {
 		return t ? R`${e.slice(0, t.start)}<mark>${e.slice(t.start, t.end)}</mark>${e.slice(t.end)}` : e;
@@ -7394,7 +7418,9 @@ var Pa = class extends V {
 		loading: { type: Boolean },
 		loadError: { type: Boolean },
 		items: { attribute: !1 },
-		showToolActivity: { type: Boolean }
+		showToolActivity: { type: Boolean },
+		workspaceTitle: {},
+		reviewNotice: { type: Boolean }
 	};
 	jumpRaf;
 	jumpActive = !1;
@@ -7587,8 +7613,9 @@ var Pa = class extends V {
               ${this.followState.hasUnread ? "↓ New messages" : "↓"}
             </button>` : z}` : R`<div class="messages">
         <div class="empty">
-          <h2>Assist Workspace</h2>
+          <h2>${this.workspaceTitle || "Assist Workspace"}</h2>
           <p>What do you need to look at?</p>
+          ${this.reviewNotice ? R`<p class="review-note" style="font-size: 0.8rem; color: var(--secondary-text-color)">👁 An admin can review these chats.</p>` : z}
         </div>
       </div>`;
 	}
@@ -8526,7 +8553,8 @@ var _s = go, vs = _o, ys = po, bs = (e, t, n) => {
 }, xs = class extends V {
 	static properties = {
 		open: { type: Boolean },
-		anchor: { attribute: !1 }
+		anchor: { attribute: !1 },
+		pinned: { type: Boolean }
 	};
 	cleanup;
 	close = () => this.dispatchEvent(new Event("menu-closed", {
@@ -8572,6 +8600,20 @@ var _s = go, vs = _o, ys = po, bs = (e, t, n) => {
 	render() {
 		return this.open ? R`<div class="conversation-menu" role="menu">
           <button
+            @click=${() => this.dispatchEvent(new Event("pin-requested", {
+			bubbles: !0,
+			composed: !0
+		}))}
+          >
+            ${this.pinned ? "Unpin" : "Pin"}</button
+          ><button
+            @click=${() => this.dispatchEvent(new Event("export-requested", {
+			bubbles: !0,
+			composed: !0
+		}))}
+          >
+            Export</button
+          ><button
             @click=${() => this.dispatchEvent(new Event("rename-requested", {
 			bubbles: !0,
 			composed: !0
@@ -8669,6 +8711,16 @@ var Ss = class {
 	}
 	async listAgents() {
 		return (await this.hass.callWS({ type: "conversation/agent/list" })).agents ?? [];
+	}
+	getPreferences() {
+		return this.hass.callWS({ type: "assist_workspace/preferences/get" });
+	}
+	pinConversation(e, t) {
+		return this.hass.callWS({
+			type: "assist_workspace/conversation/pin",
+			conversation_id: e,
+			pinned: t
+		});
 	}
 	runTurn(e, t, n, r) {
 		return this.hass.connection.subscribeMessage(r, {
@@ -8818,7 +8870,10 @@ var Os = class {
 		this.revisionsById.set(e, this.getRevision(e) + 1);
 	}
 	sort() {
-		this.orderedIds.sort((e, t) => (this.summariesById.get(t)?.updated_at ?? "").localeCompare(this.summariesById.get(e)?.updated_at ?? ""));
+		this.orderedIds.sort((e, t) => {
+			let n = this.summariesById.get(e), r = this.summariesById.get(t);
+			return (r?.pinned ? 1 : 0) - (n?.pinned ? 1 : 0) || (r?.updated_at ?? "").localeCompare(n?.updated_at ?? "");
+		});
 	}
 };
 //#endregion
@@ -9150,6 +9205,15 @@ var Ns = class {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .review {
+    flex: 0 0 auto;
+    margin-left: auto;
+    cursor: help;
+  }
+  .review + button,
+  .agent + .review {
+    margin-left: 4px;
+  }
   .agent {
     min-width: 0;
     margin-left: auto;
@@ -9289,7 +9353,8 @@ var Ns = class {
 	keep_drafts: !0,
 	default_sidebar_state: "expanded",
 	show_assistant_name: !0,
-	show_tool_activity: !0
+	show_tool_activity: !0,
+	title: "Assist Workspace"
 };
 function Rs(e, t) {
 	return e?.[t] ?? Ls[t];
@@ -9303,6 +9368,7 @@ var zs = "assist-workspace:ui", Bs = (e) => e < 700 ? "compact" : e < 1100 ? "me
 	};
 	cache = new Os();
 	agents = [];
+	prefs = {};
 	turns = new Fs();
 	search = new Ps(() => this.requestUpdate());
 	sidebarCollapsed = !1;
@@ -9400,7 +9466,7 @@ var zs = "assist-workspace:ui", Bs = (e) => e < 700 ? "compact" : e < 1100 ? "me
 		return this.draftStore?.get(this.draftKey) ?? "";
 	}
 	get agentId() {
-		return this.activeConversation?.agent_id ?? this.config?.agent_id ?? "";
+		return (this.prefs?.forced_agent_id || void 0) ?? this.activeConversation?.agent_id ?? this.config?.agent_id ?? "";
 	}
 	get runningForActiveConversation() {
 		return this.cache.activeId ? this.turns.has(this.cache.activeId) : !1;
@@ -9423,14 +9489,14 @@ var zs = "assist-workspace:ui", Bs = (e) => e < 700 ? "compact" : e < 1100 ? "me
 	}
 	async refreshServerData() {
 		if (!this.api) return;
-		let e = ++this.refreshGeneration, [t, n] = await Promise.allSettled([this.api.listConversations(), this.api.listAgents()]);
+		let e = ++this.refreshGeneration, [t, n, i] = await Promise.allSettled([this.api.listConversations(), this.api.listAgents(), this.api.getPreferences()]);
 		if (e === this.refreshGeneration) {
 			if (t.status === "fulfilled") {
 				this.initialLoadError = !1;
 				let e = t.value;
-				this.cache.replaceSummaries(e, new Set(this.turns.conversationIds)), this.cache.activeId === void 0 && (this.cache.activeId = Rs(this.config, "open_last_conversation") ? this.cache.summaries[0]?.id ?? null : null), this.cache.activeId && !this.cache.activeDetail && this.loadConversationDetail(this.cache.activeId);
+				this.cache.replaceSummaries(e, new Set(this.turns.conversationIds)), this.cache.activeId === void 0 && (this.cache.activeId = Rs(this.config, "open_last_conversation") ? [...this.cache.summaries].sort((e, t) => (t.updated_at ?? "").localeCompare(e.updated_at ?? ""))[0]?.id ?? null : null), this.cache.activeId && !this.cache.activeDetail && this.loadConversationDetail(this.cache.activeId);
 			} else this.cache.activeId === void 0 && (this.initialLoadError = !0);
-			n.status === "fulfilled" && (this.agents = n.value), this.toolInspectorSelection && !this.selectedTool && this.closeToolInspector(), this.requestUpdate();
+			n.status === "fulfilled" && (this.agents = n.value), i.status === "fulfilled" && (this.prefs = i.value), this.toolInspectorSelection && !this.selectedTool && this.closeToolInspector(), this.requestUpdate();
 		}
 	}
 	agentName() {
@@ -9568,6 +9634,28 @@ var zs = "assist-workspace:ui", Bs = (e) => e < 700 ? "compact" : e < 1100 ? "me
 		let i = "summary" in t ? t.summary : void 0;
 		i && this.cache.applySummary(i), (t.event === "turn_started" || t.event === "turn_completed" || t.event === "turn_failed" || t.event === "turn_stopped") && this.draftStore?.clear(e.submittedDraftKey ?? this.draftKey, !0), this.toolInspectorSelection && !this.selectedTool && this.closeToolInspector(), r.terminalOutcome === "completed" ? this.turnNotices.delete(e.conversationId) : r.terminalOutcome && this.turnNotices.set(e.conversationId, r.terminalOutcome), r.terminalOutcome ? this.finishTurn(e) : this.requestUpdate();
 	}
+	async pinConversation(e) {
+		if (!this.api) return;
+		let t = !this.cache.getSummary(e)?.pinned;
+		this.openConversationMenu = null, this.conversationMenuAnchor = null, this.requestUpdate();
+		try {
+			this.cache.rename(await this.api.pinConversation(e, t));
+		} catch {}
+		this.requestUpdate();
+	}
+	async exportConversation(e) {
+		if (!this.api) return;
+		this.openConversationMenu = null, this.conversationMenuAnchor = null, this.requestUpdate();
+		try {
+			let t = this.cache.getDetail(e) ?? await this.api.getConversation(e), n = this.cache.getSummary(e)?.title ?? t.title ?? "chat", r = [`# ${n}`, ""];
+			for (let e of t.messages) {
+				let t = (e.visible_content ?? "").trim();
+				t && r.push(`**${e.role === "user" ? "You" : this.agentName()}**`, "", t, "");
+			}
+			let i = URL.createObjectURL(new Blob([r.join("\n")], { type: "text/markdown" })), a = document.createElement("a");
+			a.href = i, a.download = `${n.replace(/[\\/:*?"<>|]+/g, "_").slice(0, 60) || "chat"}.md`, document.body.appendChild(a), a.click(), a.remove(), setTimeout(() => URL.revokeObjectURL(i), 1e3);
+		} catch {}
+	}
 	openRename(e) {
 		this.renameDialogConversationId = e, this.renameDraft = this.cache.getSummary(e)?.title ?? "", this.openConversationMenu = null, this.requestUpdate();
 	}
@@ -9596,10 +9684,11 @@ var zs = "assist-workspace:ui", Bs = (e) => e < 700 ? "compact" : e < 1100 ? "me
     >
       <header class="workspace-header">
         <button @click=${this.openHistory} aria-label="History">☰</button
-        ><strong>Assist Workspace</strong>
+        ><strong>${Rs(this.config, "title") || "Assist Workspace"}</strong>
         ${Rs(this.config, "show_assistant_name") ? R`<span class="agent" title=${this.agentId}
                 >${this.agentName()}</span
               >` : z}
+        ${this.prefs?.reviewable ? R`<span class="review" title="An admin can review chats" aria-label="An admin can review chats">👁</span>` : z}
         <button
           @click=${this.toggleFullscreen}
           aria-label=${this.fullscreen ? "Exit fullscreen" : "Fullscreen"}
@@ -9630,6 +9719,8 @@ var zs = "assist-workspace:ui", Bs = (e) => e < 700 ? "compact" : e < 1100 ? "me
             .conversation=${e}
             .items=${this.timelineItems}
             .showToolActivity=${Rs(this.config, "show_tool_activity")}
+            .workspaceTitle=${Rs(this.config, "title") || "Assist Workspace"}
+            .reviewNotice=${!!this.prefs?.reviewable}
             .loading=${this.cache.activeId != null && this.detailLoadState.kind === "loading" && this.detailLoadState.conversationId === this.cache.activeId}
             .loadError=${this.initialLoadError || this.cache.activeId != null && this.detailLoadState.kind === "error" && this.detailLoadState.conversationId === this.cache.activeId}
             @retry-load=${this.retryDetail}
@@ -9678,6 +9769,9 @@ var zs = "assist-workspace:ui", Bs = (e) => e < 700 ? "compact" : e < 1100 ? "me
         .anchor=${this.conversationMenuAnchor}
         @menu-closed=${this.closeConversationMenu}
         @menu-anchor-invalid=${this.closeConversationMenu}
+        .pinned=${!!this.cache.getSummary(this.openConversationMenu)?.pinned}
+        @pin-requested=${() => this.openConversationMenu && this.pinConversation(this.openConversationMenu)}
+        @export-requested=${() => this.openConversationMenu && this.exportConversation(this.openConversationMenu)}
         @rename-requested=${() => this.openConversationMenu && this.openRename(this.openConversationMenu)}
         @delete-requested=${() => this.requestDelete(this.openConversationMenu)}
       ></assist-workspace-conversation-menu>

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 
 import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
+from . import admin_api
 from .const import DOMAIN, MAX_SEARCH_QUERY_LENGTH, MAX_TEXT_LENGTH, MAX_TITLE_LENGTH
 from .conversation_runner import agent_available, async_run_turn
 from .models import (
@@ -16,6 +18,7 @@ from .models import (
     serialize_search_hit,
     serialize_summary,
 )
+from .settings import get_settings
 
 
 def _owner(connection) -> str:
@@ -24,6 +27,25 @@ def _owner(connection) -> str:
 
 def _store(hass):
     return hass.data[DOMAIN]["store"]
+
+
+def _requires_runtime(func):
+    """Commands stay registered after the integration is unloaded; refuse them cleanly."""
+
+    @functools.wraps(func)
+    async def wrapper(hass, connection, msg):
+        if DOMAIN not in hass.data:
+            connection.send_error(
+                msg["id"], websocket_api.ERR_NOT_FOUND, "Assist Workspace is not loaded"
+            )
+            return
+        await func(hass, connection, msg)
+
+    return wrapper
+
+
+def _running_ids(hass) -> set[str]:
+    return set(hass.data[DOMAIN]["tasks"])
 
 
 def _owned_or_error(hass, connection, msg):
@@ -35,10 +57,27 @@ def _owned_or_error(hass, connection, msg):
 
 @websocket_api.websocket_command({vol.Required("type"): "assist_workspace/conversation/list"})
 @websocket_api.async_response
+@_requires_runtime
 async def ws_list(hass, connection, msg):
     connection.send_result(
         msg["id"],
         {"conversations": [serialize_summary(x) for x in _store(hass).list(_owner(connection))]},
+    )
+
+
+@websocket_api.websocket_command({vol.Required("type"): "assist_workspace/preferences/get"})
+@websocket_api.async_response
+@_requires_runtime
+async def ws_preferences(hass, connection, msg):
+    """What the card needs to know about the current user's setup."""
+    connection.send_result(
+        msg["id"],
+        {
+            "forced_agent_id": _store(hass).forced_agent(_owner(connection)),
+            "is_admin": connection.user.is_admin,
+            # Shown as a notice so people know an admin can look at their chats.
+            "reviewable": get_settings(hass).admin_can_view and not connection.user.is_admin,
+        },
     )
 
 
@@ -49,6 +88,7 @@ async def ws_list(hass, connection, msg):
     }
 )
 @websocket_api.async_response
+@_requires_runtime
 async def ws_search(hass, connection, msg):
     connection.send_result(
         msg["id"],
@@ -68,6 +108,7 @@ async def ws_search(hass, connection, msg):
     }
 )
 @websocket_api.async_response
+@_requires_runtime
 async def ws_get(hass, connection, msg):
     if item := _owned_or_error(hass, connection, msg):
         connection.send_result(msg["id"], serialize_detail(item))
@@ -77,11 +118,14 @@ async def ws_get(hass, connection, msg):
     {vol.Required("type"): "assist_workspace/conversation/create", vol.Required("agent_id"): str}
 )
 @websocket_api.async_response
+@_requires_runtime
 async def ws_create(hass, connection, msg):
-    if not agent_available(hass, msg["agent_id"]):
+    # An admin can pin a user to one assistant (e.g. a kid-safe one).
+    agent_id = _store(hass).forced_agent(_owner(connection)) or msg["agent_id"]
+    if not agent_available(hass, agent_id):
         connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "Assistant unavailable")
         return
-    item = new_conversation(_owner(connection), msg["agent_id"])
+    item = new_conversation(_owner(connection), agent_id)
     await _store(hass).add(item)
     connection.send_result(msg["id"], serialize_detail(item))
 
@@ -90,15 +134,33 @@ async def ws_create(hass, connection, msg):
     {
         vol.Required("type"): "assist_workspace/conversation/rename",
         vol.Required("conversation_id"): str,
-        vol.Required("title"): vol.All(str, vol.Length(min=1, max=MAX_TITLE_LENGTH)),
+        vol.Required("title"): vol.All(str, vol.Strip, vol.Length(min=1, max=MAX_TITLE_LENGTH)),
     }
 )
 @websocket_api.async_response
+@_requires_runtime
 async def ws_rename(hass, connection, msg):
     if item := _owned_or_error(hass, connection, msg):
-        item.title = msg["title"].strip()
+        item.title = msg["title"]
         await _store(hass).touch(item)
         connection.send_result(msg["id"], serialize_summary(item))
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "assist_workspace/conversation/pin",
+        vol.Required("conversation_id"): str,
+        vol.Required("pinned"): bool,
+    }
+)
+@websocket_api.async_response
+@_requires_runtime
+async def ws_pin(hass, connection, msg):
+    item = await _store(hass).set_pinned(_owner(connection), msg["conversation_id"], msg["pinned"])
+    if item is None:
+        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "Conversation not found")
+        return
+    connection.send_result(msg["id"], serialize_summary(item))
 
 
 @websocket_api.websocket_command(
@@ -108,6 +170,7 @@ async def ws_rename(hass, connection, msg):
     }
 )
 @websocket_api.async_response
+@_requires_runtime
 async def ws_delete(hass, connection, msg):
     # Authorize before touching the task registry.  Conversation ids are
     # opaque, but a caller must never be able to cancel another user's turn
@@ -123,6 +186,15 @@ async def ws_delete(hass, connection, msg):
     connection.send_result(msg["id"])
 
 
+@websocket_api.websocket_command({vol.Required("type"): "assist_workspace/conversation/delete_all"})
+@websocket_api.async_response
+@_requires_runtime
+async def ws_delete_all(hass, connection, msg):
+    """Delete every one of the caller's chats (running ones are left alone)."""
+    deleted = await _store(hass).delete_all(_owner(connection), _running_ids(hass))
+    connection.send_result(msg["id"], {"deleted": deleted})
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "assist_workspace/turn/run",
@@ -132,10 +204,14 @@ async def ws_delete(hass, connection, msg):
     }
 )
 @websocket_api.async_response
+@_requires_runtime
 async def ws_run(hass, connection, msg):
     item = _owned_or_error(hass, connection, msg)
     if item is None:
         return
+    forced = _store(hass).forced_agent(_owner(connection))
+    if forced and item.agent_id != forced:
+        item.agent_id = forced
     if not agent_available(hass, item.agent_id):
         connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "Assistant unavailable")
         return
@@ -194,6 +270,7 @@ async def ws_run(hass, connection, msg):
     }
 )
 @websocket_api.async_response
+@_requires_runtime
 async def ws_cancel(hass, connection, msg):
     """Cancel only the caller's current turn for an owned conversation."""
     item = _owned_or_error(hass, connection, msg)
@@ -208,5 +285,18 @@ async def ws_cancel(hass, connection, msg):
 
 
 def async_register(hass: HomeAssistant) -> None:
-    for command in (ws_list, ws_search, ws_get, ws_create, ws_rename, ws_delete, ws_run, ws_cancel):
+    for command in (
+        ws_list,
+        ws_preferences,
+        ws_search,
+        ws_get,
+        ws_create,
+        ws_rename,
+        ws_pin,
+        ws_delete,
+        ws_delete_all,
+        ws_run,
+        ws_cancel,
+    ):
         websocket_api.async_register_command(hass, command)
+    admin_api.async_register(hass)

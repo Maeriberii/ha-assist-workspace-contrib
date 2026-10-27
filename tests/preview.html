@@ -1,0 +1,80 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Assist Workspace preview (fake data)</title>
+<style>
+:root{--primary-color:#03a9f4;--primary-background-color:#fafafa;--secondary-background-color:#e5e5e5;--card-background-color:#fff;--primary-text-color:#212121;--secondary-text-color:#727272;--divider-color:#e0e0e0;--success-color:#43a047;--error-color:#db4437;--warning-color:#ffa600;--app-header-background-color:#03a9f4;--app-header-text-color:#fff;color-scheme:light}
+:root.dark{--primary-background-color:#111111;--secondary-background-color:#2c2c2c;--card-background-color:#1c1c1c;--primary-text-color:#e1e1e1;--secondary-text-color:#9b9b9b;--divider-color:#383838;color-scheme:dark}
+body{margin:0;background:var(--primary-background-color);color:var(--primary-text-color);font-family:Roboto,sans-serif}
+#cardwrap{max-width:1100px;height:640px;margin:16px auto}
+</style></head><body>
+<div id="root"></div>
+<script type="module">
+const q = new URLSearchParams(location.search);
+if (q.get("dark")) document.documentElement.classList.add("dark");
+const view = q.get("view") || "card";
+const now = Date.now(), iso = (ms) => new Date(now + ms).toISOString(), H = 3600e3;
+
+const agents = [{ id: "conversation.vault_chat", name: "Vault Chat" }, { id: "conversation.kid_safe", name: "Kid Safe Chat" }];
+const msgs = [
+  { id: "m1", role: "user", visible_content: "Can you turn the pool pump on for 10 minutes?", created_at: iso(-3 * H), status: "completed", tool_executions: [] },
+  { id: "m2", role: "assistant", visible_content: "Sure. I've proposed a One Shot: pump on, wait 10 minutes, pump off. Say yes to confirm.", created_at: iso(-3 * H), status: "completed",
+    tool_executions: [{ id: "t1", name: "propose_oneshot", status: "completed", request: { trigger_type: "delay", api_key: "[REDACTED]" }, response: { status: "needs_user_confirmation", token: "[REDACTED]" } }] },
+];
+const summaries = [
+  { id: "c1", agent_id: "conversation.vault_chat", title: "Pool pump schedule", created_at: iso(-3 * H), updated_at: iso(-3 * H), message_count: 2, pinned: true },
+  { id: "c2", agent_id: "conversation.vault_chat", title: "Shed doors on rain", created_at: iso(-1 * H), updated_at: iso(-1 * H), message_count: 4, pinned: false },
+  { id: "c3", agent_id: "conversation.vault_chat", title: "Dinner ideas", created_at: iso(-30 * H), updated_at: iso(-30 * H), message_count: 6, pinned: false },
+];
+const users = [
+  { id: "u1", name: "Admin", is_admin: true, is_active: true, removed: false, conversation_count: 3, last_activity: iso(-1 * H), forced_agent_id: null },
+  { id: "u2", name: "Kid", is_admin: false, is_active: true, removed: false, conversation_count: 12, last_activity: iso(-26 * H), forced_agent_id: "conversation.kid_safe" },
+  { id: "u3", name: "Removed user", is_admin: false, is_active: false, removed: true, conversation_count: 2, last_activity: iso(-400 * H), forced_agent_id: null },
+];
+const calls = [];
+const hass = {
+  language: "en",
+  connection: { subscribeMessage: async () => () => {} },
+  callWS: async (m) => {
+    calls.push(m.type);
+    switch (m.type) {
+      case "conversation/agent/list": return { agents };
+      case "assist_workspace/conversation/list": return { conversations: summaries };
+      case "assist_workspace/conversation/get": return { ...summaries[0], messages: msgs, owner_name: "Kid" };
+      case "assist_workspace/preferences/get": return { forced_agent_id: q.get("forced") || null, is_admin: false, reviewable: true };
+      case "assist_workspace/conversation/pin": return { ...summaries.find((s) => s.id === m.conversation_id), pinned: m.pinned };
+      case "assist_workspace/admin/overview": return { enabled: q.get("off") ? false : true, users, log: [
+        { time: iso(-1 * H), admin_name: "Admin", action: "view", title: "Minecraft help", owner_name: "Kid" },
+        { time: iso(-1 * H - 60000), admin_name: "Admin", action: "list", owner_name: "Kid" }] };
+      case "assist_workspace/admin/conversations": return { conversations: summaries };
+      case "assist_workspace/admin/conversation/get": return { ...summaries[0], messages: msgs, owner_id: "u2", owner_name: "Kid" };
+      default: return {};
+    }
+  },
+};
+window.__calls = calls;
+
+if (view === "admin") {
+  await import("../custom_components/assist_workspace/frontend/assist-workspace-admin.js");
+  const el = document.createElement("assist-workspace-admin");
+  document.getElementById("root").append(el);
+  el.hass = hass;
+  await new Promise((r) => setTimeout(r, 400));
+  if (q.get("open") === "chats") { await el._openUser(users[1]); }
+  if (q.get("open") === "chat") { await el._openUser(users[1]); await el._openChat(summaries[0]); }
+} else {
+  await import("../custom_components/assist_workspace/frontend/assist-workspace-card.js");
+  const wrap = document.createElement("div"); wrap.id = "cardwrap";
+  const el = document.createElement("assist-workspace-card");
+  wrap.append(el); document.getElementById("root").append(wrap);
+  el.setConfig({ type: "custom:assist-workspace-card", agent_id: "conversation.vault_chat", title: q.get("title") || "Family Chat", open_last_conversation: q.get("open") !== "none" });
+  el.hass = hass;
+  await new Promise((r) => setTimeout(r, 600));
+  if (q.get("menu")) {
+    const hist = el.shadowRoot.querySelector("assist-workspace-history");
+    hist.shadowRoot.querySelector(".chat-menu").click();
+    await new Promise((r) => setTimeout(r, 300));
+  }
+}
+document.title = "ready:" + calls.length;
+</script>
+</body></html>
