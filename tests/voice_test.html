@@ -1,0 +1,166 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>voice tests</title></head><body>
+<pre id="out">running</pre>
+<script type="module">
+// Serve the repo root over HTTP and open /tests/voice_test.html; the result is in #out.
+import { Listener, Speaker, plainText } from "../custom_components/assist_workspace/frontend/assist-workspace-voice.js";
+
+const show = (t) => { document.getElementById("out").textContent = t; };
+window.addEventListener("error", (e) => show("ERROR " + e.message));
+window.addEventListener("unhandledrejection", (e) => show("REJECTION " + (e.reason && e.reason.stack || e.reason)));
+const lines = []; let failed = 0;
+const check = (name, ok, extra = "") => { if (!ok) failed++; lines.push(`${ok ? "PASS" : "FAIL"} ${name}${ok ? "" : "  " + extra}`); };
+const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+
+function fakeHass() {
+  const h = { sent: [], subs: [], unsubbed: 0, msg: null, cb: null, fail: false };
+  h.connection = {
+    socket: { send: (b) => h.sent.push(Array.from(b)) },
+    subscribeMessage: async (cb, msg) => {
+      if (h.fail) throw new Error("no pipeline");
+      h.cb = cb; h.msg = msg;
+      return () => { h.unsubbed++; };
+    },
+  };
+  h.hassUrl = (p) => "https://ha.example" + p;
+  return h;
+}
+function fakeMic(rate = 48000) {
+  const m = { closed: 0, sampleRate: rate, fn: null };
+  m.onChunk = (fn) => { m.fn = fn; };
+  m.close = () => { m.closed++; };
+  m.push = (vals) => m.fn(new Float32Array(vals));
+  return m;
+}
+function handlers() {
+  const r = { states: [], text: null, error: null };
+  return { r, h: { onState: (s) => r.states.push(s), onText: (t) => (r.text = t), onError: (e) => (r.error = e) } };
+}
+
+// ---- plainText
+check("plainText strips markdown", plainText("**Hi** there, see [docs](http://x) and `code`.") === "Hi there, see docs and code.", plainText("**Hi** there, see [docs](http://x) and `code`."));
+check("plainText drops code blocks", plainText("a\n```\nrm -rf /\n```\nb").includes("code omitted") && !plainText("a\n```\nrm -rf /\n```\nb").includes("rm"));
+check("plainText keeps entity names readable", plainText("light.kitchen_lamp is on") === "light.kitchen lamp is on", plainText("light.kitchen_lamp is on"));
+check("plainText truncates long text", plainText("word. ".repeat(400)).length < 800);
+check("plainText bullets", plainText("- one\n- two") === "one. two", plainText("- one\n- two"));
+
+// ---- Listener: happy path with VAD end
+{
+  const hass = fakeHass(), mic = fakeMic(), { r, h } = handlers();
+  const l = new Listener(hass, { pipelineId: "pipe1", openMic: async () => mic });
+  await l.start(h);
+  check("listener asks STT stage only", hass.msg.start_stage === "stt" && hass.msg.end_stage === "stt" && hass.msg.type === "assist_pipeline/run");
+  check("listener sends native sample rate", hass.msg.input.sample_rate === 48000);
+  check("listener passes pipeline id", hass.msg.pipeline === "pipe1");
+  check("state is listening", r.states.at(-1) === "listening");
+  mic.push([0, 0.5, -0.5]);                 // before run-start: must be queued
+  check("audio queued before run-start", hass.sent.length === 0);
+  hass.cb({ type: "run-start", data: { runner_data: { stt_binary_handler_id: 7 } } });
+  check("queued audio flushed with handler id", hass.sent.length === 1 && hass.sent[0][0] === 7 && hass.sent[0].length === 1 + 6, JSON.stringify(hass.sent));
+  const pcm = new Int16Array(new Uint8Array(hass.sent[0].slice(1)).buffer);
+  check("PCM16 conversion", pcm[0] === 0 && pcm[1] === 16383 && pcm[2] === -16384, Array.from(pcm).join(","));
+  mic.push([0.1]);
+  check("live audio sent", hass.sent.length === 2 && hass.sent[1][0] === 7);
+  hass.cb({ type: "stt-vad-end", data: {} });
+  check("vad end closes mic", mic.closed === 1);
+  check("end marker is a lone handler id", JSON.stringify(hass.sent.at(-1)) === "[7]", JSON.stringify(hass.sent.at(-1)));
+  check("state is processing", r.states.at(-1) === "processing");
+  mic.push([0.3]);
+  check("no audio after stop", hass.sent.length === 3);
+  hass.cb({ type: "stt-end", data: { stt_output: { text: " turn on the lights " } } });
+  check("transcript delivered trimmed", r.text === "turn on the lights", r.text);
+  check("state back to idle", r.states.at(-1) === "idle");
+  check("subscription released", hass.unsubbed === 1);
+}
+
+// ---- Listener: user stops before run-start
+{
+  const hass = fakeHass(), mic = fakeMic(16000), { r, h } = handlers();
+  const l = new Listener(hass, { openMic: async () => mic });
+  await l.start(h);
+  mic.push([0.2, 0.2]);
+  l.stop();
+  check("early stop sends nothing yet", hass.sent.length === 0);
+  hass.cb({ type: "run-start", data: { runner_data: { stt_binary_handler_id: 3 } } });
+  check("early stop flushes then ends", hass.sent.length === 2 && JSON.stringify(hass.sent[1]) === "[3]", JSON.stringify(hass.sent));
+  check("no pipeline field when none chosen", hass.msg.pipeline === undefined);
+}
+
+// ---- Listener: empty transcript, error event, denied mic, subscribe failure
+{
+  const hass = fakeHass(), mic = fakeMic(), { r, h } = handlers();
+  await new Listener(hass, { openMic: async () => mic }).start(h);
+  hass.cb({ type: "run-start", data: { runner_data: { stt_binary_handler_id: 1 } } });
+  hass.cb({ type: "stt-end", data: { stt_output: { text: "  " } } });
+  check("empty transcript reports", r.error === "I didn't catch that." && r.text === null, String(r.error));
+}
+{
+  const hass = fakeHass(), mic = fakeMic(), { r, h } = handlers();
+  await new Listener(hass, { openMic: async () => mic }).start(h);
+  hass.cb({ type: "error", data: { code: "stt-provider-unsupported-metadata", message: "bad audio" } });
+  check("error event surfaces message and frees mic", r.error === "bad audio" && mic.closed === 1 && r.states.at(-1) === "idle", String(r.error));
+}
+{
+  const hass = fakeHass(), { r, h } = handlers();
+  const denied = async () => { const e = new Error("x"); e.name = "NotAllowedError"; throw e; };
+  await new Listener(hass, { openMic: denied }).start(h);
+  check("denied mic gives a clear message", r.error === "Microphone permission was denied.", String(r.error));
+}
+{
+  const hass = fakeHass(); hass.fail = true; const mic = fakeMic(), { r, h } = handlers();
+  await new Listener(hass, { openMic: async () => mic }).start(h);
+  check("subscribe failure frees mic and reports", r.error === "no pipeline" && mic.closed === 1);
+}
+{
+  const hass = fakeHass(), mic = fakeMic(), { r, h } = handlers();
+  const l = new Listener(hass, { openMic: async () => mic });
+  await l.start(h); l.cancel();
+  check("cancel closes mic and unsubscribes", mic.closed === 1 && hass.unsubbed === 1 && r.text === null);
+}
+
+// ---- Speaker
+function fakeAudio() {
+  const a = { url: null, played: 0, paused: 0 };
+  a.make = (url) => { a.url = url; return { play() { a.played++; setTimeout(() => this.onended && this.onended(), 5); return Promise.resolve(); }, pause() { a.paused++; } }; };
+  return a;
+}
+{
+  const hass = fakeHass(), audio = fakeAudio();
+  const sp = new Speaker(hass, { pipelineId: "p", makeAudio: audio.make });
+  const done = sp.speak("Hello **world**");
+  await tick(2);
+  check("speaker asks TTS stage only", hass.msg.start_stage === "tts" && hass.msg.end_stage === "tts" && hass.msg.input.text === "Hello world", JSON.stringify(hass.msg));
+  hass.cb({ type: "tts-end", data: { tts_output: { url: "/api/tts_proxy/abc.mp3" } } });
+  await done;
+  check("speaker plays absolute URL", audio.url === "https://ha.example/api/tts_proxy/abc.mp3" && audio.played === 1, String(audio.url));
+  check("speaker releases subscription", hass.unsubbed >= 1);
+}
+{
+  const hass = fakeHass(), audio = fakeAudio();
+  const sp = new Speaker(hass, { makeAudio: audio.make });
+  const done = sp.speak("hi");
+  await tick(2);
+  hass.cb({ type: "error", data: { message: "no tts" } });
+  await done;
+  check("speaker stays silent on error", audio.played === 0);
+}
+{
+  const hass = fakeHass(), audio = fakeAudio();
+  const sp = new Speaker(hass, { makeAudio: audio.make });
+  const first = sp.speak("first");
+  await tick(2);
+  const second = sp.speak("second");   // supersedes the first before it got audio
+  await tick(2);
+  hass.cb({ type: "tts-end", data: { tts_output: { url: "/a.mp3" } } });
+  await Promise.all([first, second]);
+  check("newer speech supersedes older", audio.played <= 1, String(audio.played));
+}
+{
+  const hass = fakeHass(), audio = fakeAudio();
+  const sp = new Speaker(hass, { makeAudio: audio.make });
+  await sp.speak("   ");
+  check("empty text is ignored", hass.msg === null);
+}
+
+document.getElementById("out").textContent = `${failed ? "FAILED" : "ALL PASSED"} (${lines.length} checks)\n` + lines.join("\n");
+</script></body></html>

@@ -540,6 +540,7 @@ var Pe = class extends V {
 		config: { attribute: !1 }
 	};
 	agents = [];
+	pipelines = [];
 	connectedCallback() {
 		super.connectedCallback(), this.loadAgents();
 	}
@@ -550,7 +551,13 @@ var Pe = class extends V {
 		this.config = e;
 	}
 	async loadAgents() {
-		this.hass && (this.agents = (await this.hass.callWS({ type: "conversation/agent/list" })).agents ?? []), this.requestUpdate();
+		if (this.hass) {
+			this.agents = (await this.hass.callWS({ type: "conversation/agent/list" })).agents ?? [];
+			try {
+				this.pipelines = (await this.hass.callWS({ type: "assist_pipeline/pipeline/list" })).pipelines ?? [];
+			} catch {}
+		}
+		this.requestUpdate();
 	}
 	render() {
 		let e = (e, t) => this.dispatchEvent(new CustomEvent("config-changed", {
@@ -639,6 +646,43 @@ var Pe = class extends V {
           ></ha-switch
         ></ha-formfield>
       </section>
+      <section>
+        <h3>Voice</h3>
+        <ha-formfield label="Show microphone and speaker buttons"
+          ><ha-switch
+            ?checked=${this.config?.voice ?? !0}
+            @change=${t("voice")}
+          ></ha-switch
+        ></ha-formfield>
+        <ha-formfield label="Read replies aloud by default"
+          ><ha-switch
+            ?checked=${this.config?.voice_replies ?? !1}
+            @change=${t("voice_replies")}
+          ></ha-switch
+        ></ha-formfield>
+        <ha-formfield label="Send what I say straight away"
+          ><ha-switch
+            ?checked=${this.config?.voice_auto_send ?? !1}
+            @change=${t("voice_auto_send")}
+          ></ha-switch
+        ></ha-formfield>
+        <ha-select
+          label="Voice pipeline"
+          .value=${this.config?.pipeline_id ?? ""}
+          .options=${[{
+			value: "",
+			label: "Default pipeline"
+		}, ...this.pipelines.map((e) => ({
+			value: e.id,
+			label: e.name
+		}))]}
+          @selected=${n("pipeline_id")}
+        ></ha-select>
+        <p>
+          Uses the speech-to-text and text-to-speech engines of the chosen
+          Assist pipeline. The microphone needs HTTPS.
+        </p>
+      </section>
     </div>`;
 	}
 	static styles = [h`
@@ -693,7 +737,9 @@ var Fe = class extends V {
 		running: { type: Boolean },
 		textareaDisabled: { type: Boolean },
 		canSend: { type: Boolean },
-		enterSends: { type: Boolean }
+		enterSends: { type: Boolean },
+		voiceVisible: { type: Boolean },
+		voiceState: {}
 	};
 	composing = !1;
 	resize(e) {
@@ -714,7 +760,7 @@ var Fe = class extends V {
 		}));
 	}
 	render() {
-		return R`<div class="composer-shell">
+		return R`<div class="composer-shell ${this.voiceVisible ? "with-voice" : ""}">
       <textarea
         aria-label="Ask Assist"
         .value=${this.draft ?? ""}
@@ -729,7 +775,18 @@ var Fe = class extends V {
 			})));
 		}}
       ></textarea
-      ><button
+      >${this.voiceVisible ? R`<button
+            class="mic ${this.voiceState === "listening" ? "listening" : ""}"
+            aria-label=${this.voiceState === "listening" ? "Stop listening" : "Speak"}
+            title=${this.voiceState === "listening" ? "Stop listening" : this.voiceState === "processing" ? "Working out what you said" : "Speak"}
+            ?disabled=${this.textareaDisabled || this.running || this.voiceState === "processing"}
+            @click=${() => this.dispatchEvent(new CustomEvent("voice-toggle", {
+			bubbles: !0,
+			composed: !0
+		}))}
+          >
+            ${this.voiceState === "listening" ? "■" : this.voiceState === "processing" ? "…" : "🎤"}
+          </button>` : z}<button
         class="send"
         aria-label=${this.running ? "Stop" : "Send"}
         title=${this.running ? "Stop" : "Send"}
@@ -799,6 +856,42 @@ var Fe = class extends V {
     .send:disabled {
       opacity: 0.45;
       cursor: not-allowed;
+    }
+    .with-voice textarea {
+      padding-right: 92px;
+    }
+    .mic {
+      position: absolute;
+      right: 48px;
+      bottom: 8px;
+      width: var(--aw-touch-size, 34px);
+      height: var(--aw-touch-size, 34px);
+      border: 0;
+      border-radius: 50%;
+      color: var(--primary-text-color);
+      background: transparent;
+      font: inherit;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .mic:hover:not(:disabled) {
+      background: var(--divider-color);
+    }
+    .mic:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .mic.listening {
+      color: #fff;
+      background: var(--error-color, #db4437);
+      animation: aw-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes aw-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(219, 68, 55, 0.5); }
+      50% { box-shadow: 0 0 0 7px rgba(219, 68, 55, 0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .mic.listening { animation: none; }
     }
   `;
 };
@@ -9205,6 +9298,11 @@ var Ns = class {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .voice-note {
+    padding: 8px 14px 0;
+    color: var(--error-color, #db4437);
+    font-size: 0.85rem;
+  }
   .review {
     flex: 0 0 auto;
     margin-left: auto;
@@ -9354,7 +9452,11 @@ var Ns = class {
 	default_sidebar_state: "expanded",
 	show_assistant_name: !0,
 	show_tool_activity: !0,
-	title: "Assist Workspace"
+	title: "Assist Workspace",
+	voice: !0,
+	voice_replies: !1,
+	voice_auto_send: !1,
+	pipeline_id: ""
 };
 function Rs(e, t) {
 	return e?.[t] ?? Ls[t];
@@ -9369,6 +9471,12 @@ var zs = "assist-workspace:ui", Bs = (e) => e < 700 ? "compact" : e < 1100 ? "me
 	cache = new Os();
 	agents = [];
 	prefs = {};
+	voiceState = "idle";
+	voiceError = "";
+	speakPref;
+	voiceMod;
+	listener;
+	speaker;
 	turns = new Fs();
 	search = new Ps(() => this.requestUpdate());
 	sidebarCollapsed = !1;
@@ -9426,7 +9534,7 @@ var zs = "assist-workspace:ui", Bs = (e) => e < 700 ? "compact" : e < 1100 ? "me
 		}), this.layoutObserver.observe(this)), this.ensureInitialLoad();
 	}
 	disconnectedCallback() {
-		this.inspectorRaf !== void 0 && cancelAnimationFrame(this.inspectorRaf), this.turns.clear(), this.draftStore?.flush(), this.search.cancel(), this.layoutObserver?.disconnect(), this.removeEventListener("keydown", this.onKeyDown), window.removeEventListener("keydown", this.onKeyDown), super.disconnectedCallback();
+		this.inspectorRaf !== void 0 && cancelAnimationFrame(this.inspectorRaf), this.listener?.cancel(), this.speaker?.stop(), this.turns.clear(), this.draftStore?.flush(), this.search.cancel(), this.layoutObserver?.disconnect(), this.removeEventListener("keydown", this.onKeyDown), window.removeEventListener("keydown", this.onKeyDown), super.disconnectedCallback();
 	}
 	onKeyDown = (e) => {
 		if (e.key === "Escape") {
@@ -9594,6 +9702,7 @@ var zs = "assist-workspace:ui", Bs = (e) => e < 700 ? "compact" : e < 1100 ? "me
 		r.has(n) ? r.delete(n) : r.add(n), this.expandedToolGroups = r, this.requestUpdate();
 	}
 	async send() {
+		this.speaker?.stop();
 		let e = this.draftKey, t = this.draft.trim();
 		if (!this.api || !t || this.runningForActiveConversation || !this.agentId || this.cache.activeId !== null && (this.cache.activeId === void 0 || !this.activeConversation)) return;
 		let n = this.activeConversation;
@@ -9627,12 +9736,75 @@ var zs = "assist-workspace:ui", Bs = (e) => e < 700 ? "compact" : e < 1100 ? "me
 	}
 	onTurnEvent(e, t) {
 		if (!t || e.terminal || t.turn_id !== e.id || t.conversation_id !== e.conversationId) return;
+		t.event === "turn_completed" && this.speakReply(t);
 		let n = this.cache.getDetail(e.conversationId);
 		if (!n) return;
 		let r = Ms(n, e, t);
 		Object.assign(e, r.turn), this.cache.applyTimeline(r.conversation, r.timelineChanged);
 		let i = "summary" in t ? t.summary : void 0;
 		i && this.cache.applySummary(i), (t.event === "turn_started" || t.event === "turn_completed" || t.event === "turn_failed" || t.event === "turn_stopped") && this.draftStore?.clear(e.submittedDraftKey ?? this.draftKey, !0), this.toolInspectorSelection && !this.selectedTool && this.closeToolInspector(), r.terminalOutcome === "completed" ? this.turnNotices.delete(e.conversationId) : r.terminalOutcome && this.turnNotices.set(e.conversationId, r.terminalOutcome), r.terminalOutcome ? this.finishTurn(e) : this.requestUpdate();
+	}
+	get micCapable() {
+		return !!(Rs(this.config, "voice") && window.isSecureContext && navigator.mediaDevices?.getUserMedia && (window.AudioContext || window.webkitAudioContext));
+	}
+	loadVoice() {
+		return this.voiceMod ??= import(new URL("assist-workspace-voice.js" + new URL(import.meta.url).search, import.meta.url).href);
+	}
+	speakEnabled() {
+		if (this.speakPref === void 0) try {
+			let e = localStorage.getItem("assist-workspace:voice-replies");
+			this.speakPref = e === null ? !!Rs(this.config, "voice_replies") : e === "1";
+		} catch {
+			this.speakPref = !!Rs(this.config, "voice_replies");
+		}
+		return this.speakPref;
+	}
+	toggleSpeak = () => {
+		this.speakPref = !this.speakEnabled();
+		try {
+			localStorage.setItem("assist-workspace:voice-replies", this.speakPref ? "1" : "0");
+		} catch {}
+		this.speakPref || this.speaker?.stop(), this.requestUpdate();
+	};
+	showVoiceError(e) {
+		this.voiceError = e, this.requestUpdate(), setTimeout(() => {
+			this.voiceError === e && (this.voiceError = "", this.requestUpdate());
+		}, 6e3);
+	}
+	async toggleVoice() {
+		if (this.hass) {
+			if (this.voiceState === "listening") {
+				this.listener?.stop();
+				return;
+			}
+			if (this.voiceState === "idle") {
+				this.voiceError = "", this.speaker?.stop(), this.voiceState = "listening", this.requestUpdate();
+				try {
+					let e = await this.loadVoice();
+					this.listener = new e.Listener(this.hass, { pipelineId: this.config?.pipeline_id || "" }), await this.listener.start({
+						onState: (e) => {
+							this.voiceState = e, this.requestUpdate();
+						},
+						onText: (e) => this.onVoiceText(e),
+						onError: (e) => this.showVoiceError(e)
+					});
+				} catch {
+					this.voiceState = "idle", this.showVoiceError("Voice isn't available.");
+				}
+			}
+		}
+	}
+	onVoiceText(e) {
+		let t = (this.draft || "").trim();
+		this.draftStore?.set(this.draftKey, t ? `${t} ${e}` : e), this.requestUpdate(), Rs(this.config, "voice_auto_send") && this.send();
+	}
+	async speakReply(e) {
+		if (!this.hass || !Rs(this.config, "voice") || !this.speakEnabled()) return;
+		let t = [...e.messages ?? []].reverse().find((e) => e.role === "assistant" && e.visible_content);
+		if (t) try {
+			let e = await this.loadVoice();
+			this.speaker ??= new e.Speaker(this.hass, {}), this.speaker.hass = this.hass, this.speaker.pipelineId = this.config?.pipeline_id || "", await this.speaker.speak(t.visible_content);
+		} catch {}
 	}
 	async pinConversation(e) {
 		if (!this.api) return;
@@ -9689,6 +9861,14 @@ var zs = "assist-workspace:ui", Bs = (e) => e < 700 ? "compact" : e < 1100 ? "me
                 >${this.agentName()}</span
               >` : z}
         ${this.prefs?.reviewable ? R`<span class="review" title="An admin can review chats" aria-label="An admin can review chats">👁</span>` : z}
+        ${Rs(this.config, "voice") ? R`<button
+              @click=${this.toggleSpeak}
+              aria-label=${this.speakEnabled() ? "Mute spoken replies" : "Read replies aloud"}
+              aria-pressed=${this.speakEnabled() ? "true" : "false"}
+              title=${this.speakEnabled() ? "Replies are read aloud (click to mute)" : "Read replies aloud"}
+            >
+              ${this.speakEnabled() ? "🔊" : "🔇"}
+            </button>` : z}
         <button
           @click=${this.toggleFullscreen}
           aria-label=${this.fullscreen ? "Exit fullscreen" : "Fullscreen"}
@@ -9738,7 +9918,11 @@ var zs = "assist-workspace:ui", Bs = (e) => e < 700 ? "compact" : e < 1100 ? "me
 		}}
           ></assist-workspace-message-list>
           <footer>
+            ${this.voiceError ? R`<div class="voice-note" role="alert">${this.voiceError}</div>` : z}
             <assist-workspace-composer
+              .voiceVisible=${this.micCapable}
+              .voiceState=${this.voiceState}
+              @voice-toggle=${() => void this.toggleVoice()}
               .draft=${this.draft}
               .running=${t}
               .textareaDisabled=${!this.agentId || n}

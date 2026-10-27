@@ -69,6 +69,11 @@ if (view === "admin") {
   el.setConfig({ type: "custom:assist-workspace-card", agent_id: "conversation.vault_chat", title: q.get("title") || "Family Chat", open_last_conversation: q.get("open") !== "none" });
   el.hass = hass;
   await new Promise((r) => setTimeout(r, 600));
+  if (q.get("mic")) {
+    const comp = el.shadowRoot.querySelector("assist-workspace-composer");
+    comp.shadowRoot.querySelector(".mic").click();
+    await new Promise((r) => setTimeout(r, 1200));
+  }
   if (q.get("menu")) {
     const hist = el.shadowRoot.querySelector("assist-workspace-history");
     hist.shadowRoot.querySelector(".chat-menu").click();

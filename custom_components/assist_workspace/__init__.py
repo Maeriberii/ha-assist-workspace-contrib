@@ -20,6 +20,7 @@ from .const import (
     DOMAIN,
     FRONTEND_URL,
     MAINTENANCE_INTERVAL_HOURS,
+    VOICE_FRONTEND_URL,
 )
 from .settings import get_settings
 from .storage import ConversationStore
@@ -56,11 +57,13 @@ async def _async_setup_runtime(hass: HomeAssistant) -> None:
     frontend_dir = Path(__file__).parent / "frontend"
     bundle_path = frontend_dir / "assist-workspace-card.js"
     admin_path = frontend_dir / "assist-workspace-admin.js"
+    voice_path = frontend_dir / "assist-workspace-voice.js"
     if not hass.data.get(f"{DOMAIN}_static_registered"):
         await hass.http.async_register_static_paths(
             [
                 StaticPathConfig(FRONTEND_URL, str(bundle_path), cache_headers=False),
                 StaticPathConfig(ADMIN_FRONTEND_URL, str(admin_path), cache_headers=False),
+                StaticPathConfig(VOICE_FRONTEND_URL, str(voice_path), cache_headers=False),
             ]
         )
         hass.data[f"{DOMAIN}_static_registered"] = True

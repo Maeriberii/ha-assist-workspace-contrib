@@ -7,6 +7,7 @@ STORE_VERSION: Final = 1
 STORE_KEY: Final = f"{DOMAIN}.conversations"
 FRONTEND_URL: Final = f"/{DOMAIN}/assist-workspace-card.js"
 ADMIN_FRONTEND_URL: Final = f"/{DOMAIN}/assist-workspace-admin.js"
+VOICE_FRONTEND_URL: Final = f"/{DOMAIN}/assist-workspace-voice.js"
 ADMIN_PANEL_PATH: Final = "assist-workspace-admin"
 ADMIN_PANEL_ELEMENT: Final = "assist-workspace-admin"
 MAX_TEXT_LENGTH: Final = 32_000
