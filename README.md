@@ -31,7 +31,7 @@ This started as a **private backup copy** of version 0.1.0 of `Maeriberii/ha-ass
 - **Microphone button** in the message box: tap to speak, tap again (or just stop talking) to finish. What you said is put into the message box so you can check it, then you send it. Turn on **Send what I say straight away** (`voice_auto_send: true`) to skip that step.
 - **Speaker button** in the card header: when on, each reply is read aloud. Off by default (`voice_replies: true` makes it on by default); the choice is remembered per browser.
 - It uses the speech-to-text and text-to-speech engines of an Assist pipeline (your preferred one, or pick one with `pipeline_id:`), so it uses whatever you have set up there (e.g. Parakeet and Pocket TTS). The chat assistant itself is not involved in voice; the transcript just goes into the chat like typed text, so Chat Review sees it too.
-- The microphone needs HTTPS (a Cloudflare tunnel is fine; plain `http://<lan-ip>:8123` hides the mic button and you only get spoken replies). Turn it all off with `voice: false`.
+- The microphone only works where the browser or app allows it (HTTPS, or the HA app). The mic button is always shown; if it cannot be used, tapping it says why. Turn it all off with `voice: false`.
 
 ```yaml
 type: custom:assist-workspace-card

@@ -9745,7 +9745,7 @@ var zs = "assist-workspace:ui", Bs = (e) => e < 700 ? "compact" : e < 1100 ? "me
 		i && this.cache.applySummary(i), (t.event === "turn_started" || t.event === "turn_completed" || t.event === "turn_failed" || t.event === "turn_stopped") && this.draftStore?.clear(e.submittedDraftKey ?? this.draftKey, !0), this.toolInspectorSelection && !this.selectedTool && this.closeToolInspector(), r.terminalOutcome === "completed" ? this.turnNotices.delete(e.conversationId) : r.terminalOutcome && this.turnNotices.set(e.conversationId, r.terminalOutcome), r.terminalOutcome ? this.finishTurn(e) : this.requestUpdate();
 	}
 	get micCapable() {
-		return !!(Rs(this.config, "voice") && window.isSecureContext && navigator.mediaDevices?.getUserMedia && (window.AudioContext || window.webkitAudioContext));
+		return !!Rs(this.config, "voice");
 	}
 	loadVoice() {
 		return this.voiceMod ??= import(new URL("assist-workspace-voice.js" + new URL(import.meta.url).search, import.meta.url).href);

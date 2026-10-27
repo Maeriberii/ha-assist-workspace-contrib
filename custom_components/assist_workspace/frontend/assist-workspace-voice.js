@@ -22,6 +22,23 @@ export function voiceSupported() {
   );
 }
 
+/** A plain-English reason the microphone could not be used. */
+export function micErrorMessage(err) {
+  const name = err && err.name;
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    return window.isSecureContext === false
+      ? "The microphone needs a secure (HTTPS) connection to Home Assistant."
+      : "Microphone permission was denied.";
+  }
+  if (name === "NotSupportedError" || name === "TypeError") {
+    return window.isSecureContext === false
+      ? "The microphone needs a secure (HTTPS) connection to Home Assistant."
+      : "This browser or app doesn't allow microphone access here.";
+  }
+  if (name === "NotFoundError") return "No microphone was found.";
+  return "Could not open the microphone.";
+}
+
 /** Reduce Markdown to something that sounds fine when read out. */
 export function plainText(markdown) {
   let t = String(markdown || "");
@@ -45,6 +62,11 @@ export function plainText(markdown) {
 
 /** Real microphone capture. Replaceable (tests pass a synthetic one). */
 export async function openMicrophone() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    const err = new Error("no getUserMedia");
+    err.name = "NotSupportedError";
+    throw err;
+  }
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
   });
@@ -101,7 +123,7 @@ export class Listener {
     try {
       this.mic = await this.openMic();
     } catch (err) {
-      this._fail(err && err.name === "NotAllowedError" ? "Microphone permission was denied." : "Could not open the microphone.");
+      this._fail(micErrorMessage(err));
       return;
     }
     this.mic.onChunk((f32) => this._audio(toPcm16(f32)));

@@ -3,7 +3,7 @@
 <pre id="out">running</pre>
 <script type="module">
 // Serve the repo root over HTTP and open /tests/voice_test.html; the result is in #out.
-import { Listener, Speaker, plainText } from "../custom_components/assist_workspace/frontend/assist-workspace-voice.js";
+import { Listener, Speaker, plainText, micErrorMessage } from "../custom_components/assist_workspace/frontend/assist-workspace-voice.js";
 
 const show = (t) => { document.getElementById("out").textContent = t; };
 window.addEventListener("error", (e) => show("ERROR " + e.message));
@@ -43,6 +43,18 @@ check("plainText drops code blocks", plainText("a\n```\nrm -rf /\n```\nb").inclu
 check("plainText keeps entity names readable", plainText("light.kitchen_lamp is on") === "light.kitchen lamp is on", plainText("light.kitchen_lamp is on"));
 check("plainText truncates long text", plainText("word. ".repeat(400)).length < 800);
 check("plainText bullets", plainText("- one\n- two") === "one. two", plainText("- one\n- two"));
+
+// ---- micErrorMessage (this page is on localhost, so it is a secure context)
+check("permission denied message", micErrorMessage({ name: "NotAllowedError" }) === "Microphone permission was denied.");
+check("unsupported message", micErrorMessage({ name: "NotSupportedError" }) === "This browser or app doesn't allow microphone access here.", micErrorMessage({ name: "NotSupportedError" }));
+check("no microphone message", micErrorMessage({ name: "NotFoundError" }) === "No microphone was found.");
+check("unknown error message", micErrorMessage(new Error("x")) === "Could not open the microphone.");
+{
+  const hass = fakeHass(), { r, h } = handlers();
+  const unsupported = async () => { const e = new Error("x"); e.name = "NotSupportedError"; throw e; };
+  await new Listener(hass, { openMic: unsupported }).start(h);
+  check("unsupported mic reported when tapped", r.error === "This browser or app doesn't allow microphone access here.", String(r.error));
+}
 
 // ---- Listener: happy path with VAD end
 {
