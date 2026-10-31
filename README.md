@@ -1,14 +1,12 @@
-# Assist Workspace (private copy)
+# Assist Workspace (fork)
 
 Chat-style Lovelace card (`custom:assist-workspace-card`) for Home Assistant's Assist conversation agents, with per-user server-side conversation history. Version 0.2.0 added retention limits, pinning, export, a configurable title and an admin "Chat Review" page; 0.3.0 adds voice (microphone input and spoken replies).
 
-## Provenance
+## Provenance and licence
 
-This started as a **private backup copy** of version 0.1.0 of `Maeriberii/ha-assist-workspace`, taken from a Home Assistant install on 2026-10-27 after the upstream repository stopped being publicly available (it returns 404). The first commit is that copy, unmodified apart from any line-ending normalisation by git.
+This is a fork of [`Maeriberii/ha-assist-workspace`](https://github.com/Maeriberii/ha-assist-workspace) by **Maeriberii**, who wrote the original card and integration. The author confirmed on 2026-10-31 that forking and reusing it is fine, and the upstream repository is now published under the **Beer-Ware licence** (see `LICENSE`, which must be kept). If you meet them and think it was worth it, buy them a beer.
 
-- The original author is listed in `manifest.json` as `@Maeriberii`.
-- **No licence file or licence text was found** in the copied files. Until the author says otherwise, treat all rights as reserved: do not make this repository public, and do not publish a release.
-- The card (`frontend/assist-workspace-card.js`) is the compiled bundle, not the original TypeScript source, so frontend changes are small patches to that file.
+The first commit is a copy of version 0.1.0 as installed in Home Assistant. Upstream's Python and compiled card are identical to that copy; upstream also has the TypeScript source, which this fork does not use, so frontend changes here are small patches to the compiled `assist-workspace-card.js`.
 
 ## What 0.2.0 changes
 
