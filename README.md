@@ -2,6 +2,16 @@
 
 Chat-style Lovelace card (`custom:assist-workspace-card`) for Home Assistant's Assist conversation agents, with per-user server-side conversation history. Version 0.2.0 added retention limits, pinning, export, a configurable title and an admin "Chat Review" page; 0.3.0 adds voice (microphone input and spoken replies).
 
+## Installation
+
+[![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=me217&repository=ha-assist-workspace&category=integration)
+[![Add Integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=assist_workspace)
+
+1. Install Assist Workspace through HACS.
+2. Restart Home Assistant if needed.
+3. Configure the Assist Workspace integration in Home Assistant.
+4. Add the card with `type: custom:assist-workspace-card`. An `agent_id` is optional; set it to your preferred conversation agent if desired.
+
 ## Provenance and licence
 
 This is a fork of [`Maeriberii/ha-assist-workspace`](https://github.com/Maeriberii/ha-assist-workspace) by **Maeriberii**, who wrote the original card and integration. The author confirmed on 2026-10-31 that forking and reusing it is fine, and the upstream repository is now published under the **Beer-Ware licence** (see `LICENSE`, which must be kept). If you meet them and think it was worth it, buy them a beer.
@@ -49,7 +59,3 @@ See `TODO.md` for what's next and what still needs testing on a real Home Assist
 - `tests/voice_test.html`: voice protocol tests (simulated HA connection, fake microphone); same serving method, result shown on the page.
 - `tests/preview.html`: renders the card and admin page in a browser with fake data (serve the repo root over HTTP, e.g. `python -m http.server`, then open `/tests/preview.html?view=card` or `?view=admin`).
 - `brand_src/`: sources for the icon and logo.
-
-## Install (private, via HACS custom repository)
-
-Add this repository as a custom repository of type Integration, download it, restart Home Assistant, then add the card with `type: custom:assist-workspace-card` and `agent_id: <your conversation agent>`.
