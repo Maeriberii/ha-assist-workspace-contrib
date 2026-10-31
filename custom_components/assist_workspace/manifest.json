@@ -4,7 +4,7 @@
   "codeowners": ["@Maeriberii", "@me217"],
   "config_flow": true,
   "dependencies": ["http", "frontend", "panel_custom", "conversation"],
-  "documentation": "https://github.com/me217/ha-assist-workspace-copy",
+  "documentation": "https://github.com/me217/ha-assist-workspace",
   "integration_type": "service",
   "iot_class": "local_push",
   "requirements": [],
